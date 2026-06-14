@@ -26,6 +26,8 @@ export default function TasksPage({ initialAction }: TasksPageProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [completingId, setCompletingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
   const [form, setForm] = useState({
@@ -78,6 +80,7 @@ export default function TasksPage({ initialAction }: TasksPageProps) {
 
   async function saveTask() {
     setSaving(true);
+    setSaveError('');
     const { error } = await supabase.from(T.TASKS).insert({
       customer_id: form.customer_id || null,
       task_type: form.task_type,
@@ -87,8 +90,11 @@ export default function TasksPage({ initialAction }: TasksPageProps) {
       status: 'pending',
       assigned_to: form.assigned_to || user?.id,
       created_by: user?.id,
+      owner_id: user?.id,
     });
-    if (!error) {
+    if (error) {
+      setSaveError(error.message);
+    } else {
       setShowAddModal(false);
       setForm({ customer_id: '', task_type: 'customer_call', title: '', description: '', due_date: '', assigned_to: '' });
       loadTasks();
@@ -97,7 +103,10 @@ export default function TasksPage({ initialAction }: TasksPageProps) {
   }
 
   async function completeTask(taskId: string) {
-    await supabase.from(T.TASKS).update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', taskId);
+    setCompletingId(taskId);
+    const { error } = await supabase.from(T.TASKS).update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', taskId);
+    if (error) { console.error('Complete task failed:', error.message); }
+    setCompletingId(null);
     loadTasks();
   }
 
@@ -205,8 +214,10 @@ export default function TasksPage({ initialAction }: TasksPageProps) {
 
               {task.status !== 'completed' && (
                 <div className="flex border-t border-slate-50">
-                  <button onClick={() => completeTask(task.id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-3 text-emerald-600 text-sm font-medium">
+                  <button
+                    onClick={() => completeTask(task.id)}
+                    disabled={completingId === task.id}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 text-emerald-600 text-sm font-medium disabled:opacity-60">
                     <CheckSquare className="w-4 h-4" /> Done
                   </button>
                   {customer && (
@@ -233,12 +244,15 @@ export default function TasksPage({ initialAction }: TasksPageProps) {
         onClose={() => setShowAddModal(false)}
         title="Add Task"
         footer={
-          <button onClick={saveTask} disabled={saving}
-            className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
-            style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {saving ? 'Saving...' : 'Save Task'}
-          </button>
+          <div className="space-y-2">
+            {saveError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{saveError}</p>}
+            <button onClick={saveTask} disabled={saving}
+              className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {saving ? 'Saving...' : 'Save Task'}
+            </button>
+          </div>
         }
       >
         <div className="space-y-3">

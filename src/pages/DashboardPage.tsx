@@ -58,11 +58,12 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const [customersRes, loansRes, policiesRes, renewalsRes, tasksRes, docsRes, activitiesRes, insMonthRes, insIssuedRes, insPremiumRes, loansMonthRes, loansDisbRes, loansDisbAmtRes] = await Promise.all([
+    const [customersRes, loansRes, policiesRes, renewalsCountRes, renewalsRes, tasksRes, docsRes, activitiesRes, insMonthRes, insIssuedRes, insPremiumRes, loansMonthRes, loansDisbRes, loansDisbAmtRes] = await Promise.all([
       supabase.from(T.CUSTOMERS).select('id', { count: 'exact', head: true }).eq('active', true),
       supabase.from(T.LOANS).select('id', { count: 'exact', head: true }).not('status', 'in', '("closed","rejected")').eq('active', true),
       supabase.from(T.INSURANCE_POLICIES).select('id', { count: 'exact', head: true }).eq('status', 'active').eq('active', true),
-      supabase.from(T.RENEWALS).select('id, title, renewal_date, amount, customer:core_customers(full_name)', { count: 'exact' }).eq('status', 'pending').eq('active', true).lte('renewal_date', new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]).order('renewal_date').limit(5),
+      supabase.from(T.RENEWALS).select('id', { count: 'exact', head: true }).eq('active', true).eq('status', 'pending').lte('renewal_date', new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]),
+      supabase.from(T.RENEWALS).select('id, title, renewal_date, amount, customer:core_customers(full_name)').eq('status', 'pending').eq('active', true).lte('renewal_date', new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]).order('renewal_date').limit(5),
       supabase.from(T.TASKS).select('id', { count: 'exact', head: true }).in('status', ['pending', 'in_progress']).eq('active', true),
       supabase.from(T.DOCUMENTS).select('id', { count: 'exact', head: true }).eq('active', true),
       supabase.from(T.ACTIVITIES).select('id, description, activity_type, created_at').order('created_at', { ascending: false }).limit(6),
@@ -81,7 +82,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       totalCustomers: customersRes.count ?? 0,
       activeLoans: loansRes.count ?? 0,
       activePolicies: policiesRes.count ?? 0,
-      renewalsDue: renewalsRes.count ?? 0,
+      renewalsDue: renewalsCountRes.count ?? 0,
       pendingDocuments: docsRes.count ?? 0,
       pendingTasks: tasksRes.count ?? 0,
       insuranceCasesMonth: insMonthRes.count ?? 0,

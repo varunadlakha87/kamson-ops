@@ -95,6 +95,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
       let query = supabase
         .from(T.DOCUMENTS)
         .select('*, customer:core_customers!core_documents_customer_id_fkey(id, full_name, mobile), loan:core_loans!core_documents_loan_id_fkey(loan_type, bank_nbfc), insurance_case:core_insurance_cases!core_documents_insurance_case_id_fkey(policy_type, insurance_partner)')
+        .eq('active', true)
         .order('created_at', { ascending: false });
 
       if (categoryFilter) query = query.eq('category', categoryFilter);
@@ -141,7 +142,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
   useEffect(() => { loadDocuments(); }, [loadDocuments]);
 
   useEffect(() => {
-    supabase.from(T.CUSTOMERS).select('id, full_name, mobile').order('full_name').then(({ data }) => {
+    supabase.from(T.CUSTOMERS).select('id, full_name, mobile').eq('active', true).order('full_name').then(({ data }) => {
       setCustomers(data ?? []);
     });
   }, []);
@@ -150,8 +151,8 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
   useEffect(() => {
     if (!form.customer_id) { setLoanOptions([]); setCaseOptions([]); return; }
     Promise.all([
-      supabase.from(T.LOANS).select('id, loan_type, bank_nbfc').eq('customer_id', form.customer_id),
-      supabase.from(T.INSURANCE_CASES).select('id, policy_type, insurance_partner').eq('customer_id', form.customer_id),
+      supabase.from(T.LOANS).select('id, loan_type, bank_nbfc').eq('customer_id', form.customer_id).eq('active', true),
+      supabase.from(T.INSURANCE_CASES).select('id, policy_type, insurance_partner').eq('customer_id', form.customer_id).eq('active', true),
     ]).then(([{ data: loans }, { data: cases }]) => {
       setLoanOptions(loans ?? []);
       setCaseOptions(cases ?? []);
@@ -207,6 +208,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
       file_size: fileSize,
       mime_type: mimeType,
       uploaded_by: user?.id,
+      owner_id: user?.id,
     });
 
     if (error) {
@@ -215,6 +217,8 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
       setSaving(false);
       return;
     }
+
+    setUploadProgress(100);
 
     await supabase.from(T.ACTIVITIES).insert({
       customer_id: form.customer_id,
@@ -225,7 +229,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
 
     setShowUploadModal(false);
     setForm({ ...emptyForm });
-    setUploadProgress(0);
+    setTimeout(() => setUploadProgress(0), 500);
     setSaving(false);
     loadDocuments();
   }
@@ -377,7 +381,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
                             <span className={`text-[10px] font-bold ${cfg.color}`}>· {catDocs.length}</span>
                           </div>
                           {catDocs.map((doc, idx) => (
-                            <DocRow
+                            <DocRowItem
                               key={doc.id}
                               doc={doc}
                               last={idx === catDocs.length - 1}
@@ -590,7 +594,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
 }
 
 // Inline document row for grouped view
-function DocRow({ doc, last, formatSize }: { doc: DocRow; last: boolean; formatSize: (n: number) => string }) {
+function DocRowItem({ doc, last, formatSize }: { doc: DocRow; last: boolean; formatSize: (n: number) => string }) {
   const isImage = doc.mime_type?.startsWith('image/');
   const tagLabel = doc.loan
     ? `${doc.loan.loan_type} · ${doc.loan.bank_nbfc}`

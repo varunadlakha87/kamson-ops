@@ -88,6 +88,7 @@ const PIPELINE_COLUMNS: { statuses: CaseStatus[]; label: string; key: string }[]
 ];
 
 const emptyForm = {
+  customer_id: '',
   customer_name: '', policy_type: '', insurance_partner: '' as InsurancePartner | '',
   premium_amount: '', expected_commission: '', quote_date: '', policy_issue_date: '',
   renewal_date: '', case_status: 'Lead Generated' as CaseStatus,
@@ -116,6 +117,9 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
   const [editingCase, setEditingCase] = useState<InsuranceCase | null>(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [selectedCase, setSelectedCase] = useState<InsuranceCase | null>(null);
+  const [allCustomers, setAllCustomers] = useState<{ id: string; full_name: string; mobile: string }[]>([]);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [showCustomerDrop, setShowCustomerDrop] = useState(false);
 
   const loadCases = useCallback(async () => {
     setLoading(true);
@@ -123,6 +127,7 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
       let query = supabase
         .from(T.INSURANCE_CASES)
         .select('*, rm:master_users!core_insurance_cases_rm_id_fkey(full_name)')
+        .eq('active', true)
         .order('created_at', { ascending: false });
 
       if (filterPartner) query = query.eq('insurance_partner', filterPartner);
@@ -157,12 +162,17 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
     });
   }, []);
 
+  useEffect(() => {
+    supabase.from(T.CUSTOMERS).select('id, full_name, mobile').eq('active', true).order('full_name').then(({ data }) => setAllCustomers(data ?? []));
+  }, []);
+
   async function handleSave() {
     if (!form.customer_name.trim() || !form.insurance_partner || !form.policy_type) return;
     setSaving(true);
     setSaveError('');
 
-    const payload = {
+    const basePayload = {
+      customer_id: form.customer_id || null,
       customer_name: form.customer_name.trim(),
       policy_type: form.policy_type,
       insurance_partner: form.insurance_partner,
@@ -175,12 +185,11 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
       case_status: form.case_status,
       rejection_reason: form.rejection_reason || null,
       remarks: form.remarks || null,
-      created_by: user?.id,
     };
 
     const { data: savedCase, error } = editingCase
-      ? await supabase.from(T.INSURANCE_CASES).update(payload).eq('id', editingCase.id).select().single()
-      : await supabase.from(T.INSURANCE_CASES).insert(payload).select().single();
+      ? await supabase.from(T.INSURANCE_CASES).update(basePayload).eq('id', editingCase.id).select().single()
+      : await supabase.from(T.INSURANCE_CASES).insert({ ...basePayload, created_by: user?.id, owner_id: user?.id }).select().single();
 
     if (error) {
       setSaveError(error.message);
@@ -209,11 +218,13 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
     setShowAddModal(false);
     setEditingCase(null);
     setForm({ ...emptyForm });
+    setCustomerQuery('');
     loadCases();
   }
 
   async function updateStatus(caseId: string, newStatus: CaseStatus) {
-    await supabase.from(T.INSURANCE_CASES).update({ case_status: newStatus }).eq('id', caseId);
+    const { error } = await supabase.from(T.INSURANCE_CASES).update({ case_status: newStatus }).eq('id', caseId);
+    if (error) { console.error('Status update failed:', error.message); return; }
 
     // Auto-create renewal when a case is marked as Policy Issued and has a renewal date
     if (newStatus === 'Policy Issued' && selectedCase && selectedCase.renewal_date) {
@@ -242,7 +253,9 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
 
   function openEdit(c: InsuranceCase) {
     setEditingCase(c);
+    setCustomerQuery(c.customer_name ?? '');
     setForm({
+      customer_id: c.customer_id ?? '',
       customer_name: c.customer_name,
       policy_type: c.policy_type,
       insurance_partner: c.insurance_partner,
@@ -648,7 +661,7 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
       {/* Add/Edit Case Modal */}
       <Modal
         open={showAddModal}
-        onClose={() => { setShowAddModal(false); setEditingCase(null); setSaveError(''); }}
+        onClose={() => { setShowAddModal(false); setEditingCase(null); setSaveError(''); setCustomerQuery(''); setForm(f => ({ ...f, customer_id: '' })); }}
         title={editingCase ? 'Edit Case' : 'New Insurance Case'}
         footer={
           <div className="space-y-2">
@@ -666,6 +679,64 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
         }
       >
         <div className="space-y-4">
+          {/* Customer typeahead picker */}
+          <div className="relative">
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Customer</label>
+            {form.customer_id ? (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-blue-300 bg-blue-50">
+                <span className="flex-1 text-sm font-medium text-blue-800">{customerQuery}</span>
+                <button
+                  onClick={() => { setForm(f => ({ ...f, customer_id: '' })); setCustomerQuery(''); }}
+                  className="text-blue-400 hover:text-blue-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={customerQuery}
+                  onChange={e => { setCustomerQuery(e.target.value); setShowCustomerDrop(true); }}
+                  onFocus={() => setShowCustomerDrop(true)}
+                  placeholder="Search by name or mobile..."
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                />
+                {showCustomerDrop && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+                    {allCustomers
+                      .filter(c => {
+                        const q = customerQuery.toLowerCase();
+                        return !q || c.full_name.toLowerCase().includes(q) || c.mobile.includes(q);
+                      })
+                      .slice(0, 20)
+                      .map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onMouseDown={() => {
+                            setForm(f => ({ ...f, customer_id: c.id, customer_name: c.full_name }));
+                            setCustomerQuery(c.full_name);
+                            setShowCustomerDrop(false);
+                          }}
+                          className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0"
+                        >
+                          <p className="text-sm font-medium text-slate-800">{c.full_name}</p>
+                          <p className="text-xs text-slate-400">{c.mobile}</p>
+                        </button>
+                      ))}
+                    {allCustomers.filter(c => {
+                      const q = customerQuery.toLowerCase();
+                      return !q || c.full_name.toLowerCase().includes(q) || c.mobile.includes(q);
+                    }).length === 0 && (
+                      <p className="px-3 py-3 text-xs text-slate-400">No customers found</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Customer Name *</label>
             <input

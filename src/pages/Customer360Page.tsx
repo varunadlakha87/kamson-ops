@@ -88,6 +88,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const [loanForm, setLoanForm] = useState({ loan_type: '', bank_nbfc: '', loan_amount: '', emi_amount: '', roi: '', tenure_months: '', login_date: '', status: 'lead', notes: '' });
   const [policyForm, setPolicyForm] = useState({ policy_type: '', insurance_company: '', policy_number: '', premium_amount: '', sum_assured: '', policy_start_date: '', renewal_date: '', nominee_name: '', status: 'active', notes: '' });
@@ -108,24 +109,24 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
     try {
       switch (tab) {
         case 'loans':
-          const { data: l } = await supabase.from(T.LOANS).select('*').eq('customer_id', customer.id).order('created_at', { ascending: false });
+          const { data: l } = await supabase.from(T.LOANS).select('*').eq('customer_id', customer.id).eq('active', true).order('created_at', { ascending: false });
           setLoans(l ?? []);
           break;
         case 'insurance': {
           const [{ data: p }, { data: ic }] = await Promise.all([
-            supabase.from(T.INSURANCE_POLICIES).select('*').eq('customer_id', customer.id).order('created_at', { ascending: false }),
-            supabase.from(T.INSURANCE_CASES).select('*').eq('customer_id', customer.id).order('created_at', { ascending: false }),
+            supabase.from(T.INSURANCE_POLICIES).select('*').eq('customer_id', customer.id).eq('active', true).order('created_at', { ascending: false }),
+            supabase.from(T.INSURANCE_CASES).select('*').eq('customer_id', customer.id).eq('active', true).order('created_at', { ascending: false }),
           ]);
           setPolicies(p ?? []);
           setInsuranceCases((ic ?? []) as InsuranceCaseItem[]);
           break;
         }
         case 'documents':
-          const { data: d } = await supabase.from(T.DOCUMENTS).select('*, uploader:master_users!core_documents_uploaded_by_fkey(full_name)').eq('customer_id', customer.id).order('created_at', { ascending: false });
+          const { data: d } = await supabase.from(T.DOCUMENTS).select('*, uploader:master_users!core_documents_uploaded_by_fkey(full_name)').eq('customer_id', customer.id).eq('active', true).order('created_at', { ascending: false });
           setDocuments(d ?? []);
           break;
         case 'tasks':
-          const { data: t } = await supabase.from(T.TASKS).select('*, assignee:master_users!core_tasks_assigned_to_fkey(full_name)').eq('customer_id', customer.id).order('due_date', { ascending: true });
+          const { data: t } = await supabase.from(T.TASKS).select('*, assignee:master_users!core_tasks_assigned_to_fkey(full_name)').eq('customer_id', customer.id).eq('active', true).order('due_date', { ascending: true });
           setTasks(t ?? []);
           break;
         case 'timeline':
@@ -142,26 +143,30 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
 
   async function saveLoan() {
     setSaving(true);
-    const { error } = await supabase.from(T.LOANS).insert({
-      customer_id: customer.id,
-      loan_type: loanForm.loan_type,
-      bank_nbfc: loanForm.bank_nbfc,
-      loan_amount: parseFloat(loanForm.loan_amount) || 0,
-      emi_amount: parseFloat(loanForm.emi_amount) || 0,
-      roi: parseFloat(loanForm.roi) || 0,
-      tenure_months: parseInt(loanForm.tenure_months) || 0,
-      login_date: loanForm.login_date || null,
-      status: loanForm.status,
-      notes: loanForm.notes,
-      created_by: user?.id,
-    });
-    if (!error) {
-      await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'loan_created', description: `Loan case created: ${loanForm.loan_type} - ${loanForm.bank_nbfc}`, performed_by: user?.id });
-      setShowLoanModal(false);
-      setLoanForm({ loan_type: '', bank_nbfc: '', loan_amount: '', emi_amount: '', roi: '', tenure_months: '', login_date: '', status: 'lead', notes: '' });
-      loadTabData('loans');
+    try {
+      const { error } = await supabase.from(T.LOANS).insert({
+        customer_id: customer.id,
+        loan_type: loanForm.loan_type,
+        bank_nbfc: loanForm.bank_nbfc,
+        loan_amount: parseFloat(loanForm.loan_amount) || 0,
+        emi_amount: parseFloat(loanForm.emi_amount) || 0,
+        roi: parseFloat(loanForm.roi) || 0,
+        tenure_months: parseInt(loanForm.tenure_months) || 0,
+        login_date: loanForm.login_date || null,
+        status: loanForm.status,
+        notes: loanForm.notes,
+        created_by: user?.id,
+        owner_id: user?.id,
+      });
+      if (!error) {
+        await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'loan_created', description: `Loan case created: ${loanForm.loan_type} - ${loanForm.bank_nbfc}`, performed_by: user?.id });
+        setShowLoanModal(false);
+        setLoanForm({ loan_type: '', bank_nbfc: '', loan_amount: '', emi_amount: '', roi: '', tenure_months: '', login_date: '', status: 'lead', notes: '' });
+        loadTabData('loans');
+      }
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   async function savePolicy() {
@@ -179,6 +184,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
       status: policyForm.status,
       notes: policyForm.notes,
       created_by: user?.id,
+      owner_id: user?.id,
     }).select().single();
     if (!error) {
       if (policyForm.renewal_date) {
@@ -202,6 +208,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
 
   async function saveTask() {
     setSaving(true);
+    setSaveError('');
     const { error } = await supabase.from(T.TASKS).insert({
       customer_id: customer.id,
       task_type: taskForm.task_type,
@@ -211,8 +218,11 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
       status: 'pending',
       assigned_to: user?.id,
       created_by: user?.id,
+      owner_id: user?.id,
     });
-    if (!error) {
+    if (error) {
+      setSaveError(error.message);
+    } else {
       await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'task_created', description: `Task created: ${taskForm.title || TASK_TYPE_LABELS[taskForm.task_type]}`, performed_by: user?.id });
       setShowTaskModal(false);
       setTaskForm({ task_type: 'customer_call', title: '', description: '', due_date: '' });
@@ -224,15 +234,20 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
   async function saveNote() {
     if (!noteText.trim()) return;
     setSaving(true);
-    await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'note_added', description: noteText.trim(), performed_by: user?.id });
-    setShowNoteModal(false);
-    setNoteText('');
-    if (activeTab === 'timeline') loadTabData('timeline');
+    const { error } = await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'note_added', description: noteText.trim(), performed_by: user?.id });
+    if (error) {
+      console.error('Save note failed:', error.message);
+    } else {
+      setShowNoteModal(false);
+      setNoteText('');
+      if (activeTab === 'timeline') loadTabData('timeline');
+    }
     setSaving(false);
   }
 
   async function completeTask(taskId: string) {
-    await supabase.from(T.TASKS).update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', taskId);
+    const { error } = await supabase.from(T.TASKS).update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', taskId);
+    if (error) { console.error('Complete task failed:', error.message); return; }
     loadTabData('tasks');
   }
 
@@ -773,12 +788,15 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
         onClose={() => setShowTaskModal(false)}
         title="Add Task"
         footer={
-          <button onClick={saveTask} disabled={saving}
-            className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
-            style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {saving ? 'Saving...' : 'Save Task'}
-          </button>
+          <div className="space-y-2">
+            {saveError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{saveError}</p>}
+            <button onClick={saveTask} disabled={saving}
+              className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {saving ? 'Saving...' : 'Save Task'}
+            </button>
+          </div>
         }
       >
         <div className="space-y-3">

@@ -107,6 +107,7 @@ export default function LoansPage({ initialAction }: LoansPageProps) {
       let query = supabase
         .from(T.LOANS)
         .select('*, customer:core_customers!core_loans_customer_id_fkey(full_name, mobile), assigned_rm:master_users!core_loans_assigned_rm_id_fkey(full_name)')
+        .eq('active', true)
         .order('created_at', { ascending: false });
 
       if (filterStatus) query = query.eq('status', filterStatus);
@@ -143,7 +144,7 @@ export default function LoansPage({ initialAction }: LoansPageProps) {
   }, []);
 
   useEffect(() => {
-    supabase.from(T.CUSTOMERS).select('id, full_name, mobile').order('full_name').then(({ data }) => {
+    supabase.from(T.CUSTOMERS).select('id, full_name, mobile').eq('active', true).order('full_name').then(({ data }) => {
       setAllCustomers(data ?? []);
     });
   }, []);
@@ -153,7 +154,7 @@ export default function LoansPage({ initialAction }: LoansPageProps) {
     setSaving(true);
     setSaveError('');
 
-    const payload = {
+    const basePayload = {
       customer_id: form.customer_id || null,
       loan_type: form.loan_type,
       bank_nbfc: form.bank_nbfc.trim(),
@@ -167,12 +168,11 @@ export default function LoansPage({ initialAction }: LoansPageProps) {
       status: form.status,
       assigned_rm_id: form.assigned_rm_id || null,
       notes: form.notes || null,
-      created_by: user?.id,
     };
 
     const { error } = editingLoan
-      ? await supabase.from(T.LOANS).update(payload).eq('id', editingLoan.id)
-      : await supabase.from(T.LOANS).insert(payload);
+      ? await supabase.from(T.LOANS).update(basePayload).eq('id', editingLoan.id)
+      : await supabase.from(T.LOANS).insert({ ...basePayload, created_by: user?.id, owner_id: user?.id });
 
     if (error) {
       setSaveError(error.message);
@@ -189,7 +189,8 @@ export default function LoansPage({ initialAction }: LoansPageProps) {
   }
 
   async function updateStatus(loanId: string, newStatus: LoanStatus) {
-    await supabase.from(T.LOANS).update({ status: newStatus }).eq('id', loanId);
+    const { error } = await supabase.from(T.LOANS).update({ status: newStatus }).eq('id', loanId);
+    if (error) { console.error('Status update failed:', error.message); return; }
     setShowStatusModal(false);
     setSelectedLoan(null);
     loadLoans();

@@ -69,7 +69,7 @@ export interface Customer {
 }
 export interface CustomerTag { id: string; customer_id: string; tag: string; created_at: string; }
 export interface Loan {
-  id: string; ref_id: string; case_number: string | null; customer_id: string;
+  id: string; ref_id: string; case_number: string | null; customer_id: string | null;
   loan_type: string; bank_nbfc: string; loan_amount: number; emi_amount: number;
   roi: number; tenure_months: number; login_date: string | null;
   disbursal_date: string | null; loan_account_number: string; status: LoanStatus;

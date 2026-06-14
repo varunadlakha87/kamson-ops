@@ -45,6 +45,7 @@ export default function CustomersPage({ onViewCustomer, initialAction }: Custome
       let query = supabase
         .from(T.CUSTOMERS)
         .select('*, assigned_rm:master_users!core_customers_assigned_rm_id_fkey(id, full_name, role), tags:core_customer_tags(id, tag)')
+        .eq('active', true)
         .order('created_at', { ascending: false });
 
       if (statusFilter) query = query.eq('status', statusFilter);
@@ -84,45 +85,48 @@ export default function CustomersPage({ onViewCustomer, initialAction }: Custome
     setSaving(true);
     setSaveError('');
 
-    const { data: customer, error } = await supabase.from(T.CUSTOMERS).insert({
-      full_name: form.full_name.trim(),
-      mobile: form.mobile.trim(),
-      alternate_mobile: form.alternate_mobile || null,
-      email: form.email || null,
-      pan: form.pan || null,
-      aadhaar: form.aadhaar || null,
-      date_of_birth: form.date_of_birth || null,
-      address: form.address || null,
-      occupation: form.occupation || null,
-      status: form.status,
-      assigned_rm_id: form.assigned_rm_id || null,
-      notes: form.notes || null,
-      created_by: user?.id,
-    }).select().single();
+    try {
+      const { data: customer, error } = await supabase.from(T.CUSTOMERS).insert({
+        full_name: form.full_name.trim(),
+        mobile: form.mobile.trim(),
+        alternate_mobile: form.alternate_mobile || null,
+        email: form.email || null,
+        pan: form.pan || null,
+        aadhaar: form.aadhaar || null,
+        date_of_birth: form.date_of_birth || null,
+        address: form.address || null,
+        occupation: form.occupation || null,
+        status: form.status,
+        assigned_rm_id: form.assigned_rm_id || null,
+        notes: form.notes || null,
+        created_by: user?.id,
+        owner_id: user?.id,
+      }).select().single();
 
-    if (error) {
-      setSaveError(error.message);
+      if (error) {
+        setSaveError(error.message);
+        return;
+      }
+
+      if (customer && form.tags.length > 0) {
+        await supabase.from(T.CUSTOMER_TAGS).insert(
+          form.tags.map(tag => ({ customer_id: customer.id, tag }))
+        );
+      }
+
+      await supabase.from(T.ACTIVITIES).insert({
+        customer_id: customer?.id,
+        activity_type: 'customer_added',
+        description: `Customer ${form.full_name} was added`,
+        performed_by: user?.id,
+      });
+
+      setShowAddModal(false);
+      resetForm();
+      loadCustomers();
+    } finally {
       setSaving(false);
-      return;
     }
-
-    if (customer && form.tags.length > 0) {
-      await supabase.from(T.CUSTOMER_TAGS).insert(
-        form.tags.map(tag => ({ customer_id: customer.id, tag }))
-      );
-    }
-
-    await supabase.from(T.ACTIVITIES).insert({
-      customer_id: customer?.id,
-      activity_type: 'customer_added',
-      description: `Customer ${form.full_name} was added`,
-      performed_by: user?.id,
-    });
-
-    setSaving(false);
-    setShowAddModal(false);
-    resetForm();
-    loadCustomers();
   }
 
   function resetForm() {
