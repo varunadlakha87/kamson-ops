@@ -14,9 +14,14 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error } = await signIn(email, password);
-    if (error) setError(error.message);
-    setLoading(false);
+    try {
+      const { error } = await signIn(email, password);
+      if (error) setError(error.message || 'Sign in failed. Please try again.');
+    } catch {
+      setError('Cannot connect to server. Check your connection.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (

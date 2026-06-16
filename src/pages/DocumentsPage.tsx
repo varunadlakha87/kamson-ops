@@ -165,6 +165,16 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
     setForm(f => ({ ...f, document_type: types[0] }));
   }, [form.category]);
 
+  // Auto-populate document name from type + customer name
+  useEffect(() => {
+    if (!form.customer_id && !form.document_type) return;
+    const customer = customers.find(c => c.id === form.customer_id);
+    const autoName = customer
+      ? `${form.document_type} — ${customer.full_name}`
+      : form.document_type;
+    setForm(f => ({ ...f, document_name: autoName }));
+  }, [form.document_type, form.customer_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function toggleGroup(cid: string) {
     setGroups(gs => gs.map(g => g.customer_id === cid ? { ...g, expanded: !g.expanded } : g));
   }
@@ -186,7 +196,13 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
         .from('documents')
         .upload(path, form.file, { upsert: false });
 
-      if (!uploadError && uploadData) {
+      if (uploadError) {
+        setSaveError(`Upload failed: ${uploadError.message}`);
+        setUploadProgress(0);
+        setSaving(false);
+        return;
+      }
+      if (uploadData) {
         setUploadProgress(80);
         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(uploadData.path);
         fileUrl = urlData.publicUrl;
@@ -208,6 +224,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
       file_size: fileSize,
       mime_type: mimeType,
       uploaded_by: user?.id,
+      active: true,
       owner_id: user?.id,
     });
 
@@ -225,6 +242,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
       activity_type: 'document_uploaded',
       description: `Document uploaded: ${form.document_name} (${form.document_type})`,
       performed_by: user?.id,
+      active: true,
     });
 
     setShowUploadModal(false);
@@ -540,6 +558,7 @@ export default function DocumentsPage({ initialAction }: DocumentsPageProps) {
                 type="file"
                 className="hidden"
                 accept="image/*,application/pdf"
+                {...(form.category === 'kyc' ? { capture: 'environment' as const } : {})}
                 onChange={e => { const f = e.target.files?.[0]; if (f) setForm(prev => ({ ...prev, file: f })); }}
               />
             </label>

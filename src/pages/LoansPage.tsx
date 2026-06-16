@@ -172,7 +172,7 @@ export default function LoansPage({ initialAction }: LoansPageProps) {
 
     const { error } = editingLoan
       ? await supabase.from(T.LOANS).update(basePayload).eq('id', editingLoan.id)
-      : await supabase.from(T.LOANS).insert({ ...basePayload, created_by: user?.id, owner_id: user?.id });
+      : await supabase.from(T.LOANS).insert({ ...basePayload, active: true, created_by: user?.id, owner_id: user?.id });
 
     if (error) {
       setSaveError(error.message);
@@ -911,6 +911,6 @@ export default function LoansPage({ initialAction }: LoansPageProps) {
           </button>
         </div>
       </Modal>
-    </div>
+        </div>
   );
 }

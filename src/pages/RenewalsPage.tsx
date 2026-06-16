@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase, T, Renewal, Customer } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import Modal from '../components/Modal';
 import { RefreshCw, Calendar, Phone, MessageCircle, AlertTriangle, CheckCircle, Clock, Plus, Loader2 } from 'lucide-react';
 
@@ -19,7 +20,20 @@ const emptyForm = {
   notes: '',
 };
 
+// Quick date helpers
+function renewalDateStr(offsetDays: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().split('T')[0];
+}
+function renewalDateStrYears(years: number) {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().split('T')[0];
+}
+
 export default function RenewalsPage() {
+  const { user } = useAuth();
   const [renewals, setRenewals] = useState<(Renewal & { customer?: Customer })[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'overdue' | '7days' | '30days'>('all');
@@ -54,22 +68,34 @@ export default function RenewalsPage() {
   }
 
   async function markRenewed(id: string) {
-    await supabase.from(T.RENEWALS).update({ status: 'completed' }).eq('id', id);
+    const { error } = await supabase.from(T.RENEWALS).update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', id);
+    if (error) console.error('markRenewed error:', error.message);
     loadRenewals();
   }
 
+  // Auto-compose title when type or customer changes (only if title wasn't manually edited)
+  function autoTitle(type: string, customerId: string) {
+    const customer = customers.find(c => c.id === customerId);
+    const typeLabel = RENEWAL_TYPES.find(t => t.value === type)?.label ?? type;
+    return customer ? `${typeLabel} — ${customer.full_name}` : typeLabel;
+  }
+
   async function handleSave() {
-    if (!form.title.trim() || !form.renewal_date) return;
+    const title = form.title.trim() || autoTitle(form.renewal_type, form.customer_id);
+    if (!form.renewal_date) return;
     setSaving(true);
     setSaveError('');
     const { error } = await supabase.from(T.RENEWALS).insert({
       customer_id: form.customer_id || null,
       renewal_type: form.renewal_type,
-      title: form.title.trim(),
+      title,
       renewal_date: form.renewal_date,
       amount: parseFloat(form.amount) || 0,
       notes: form.notes || null,
       status: 'pending',
+      active: true,
+      owner_id: user?.id,
+      created_by: user?.id,
     });
     if (error) { setSaveError(error.message); setSaving(false); return; }
     setSaving(false);
@@ -293,6 +319,24 @@ export default function RenewalsPage() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Renewal Date *</label>
+            <div className="flex gap-1.5 mb-2">
+              {[
+                { label: '+30 Days', date: renewalDateStr(30) },
+                { label: '+3 Months', date: renewalDateStr(90) },
+                { label: '+6 Months', date: renewalDateStr(180) },
+                { label: '+1 Year', date: renewalDateStrYears(1) },
+              ].map(q => (
+                <button
+                  key={q.label}
+                  onClick={() => setForm(f => ({ ...f, renewal_date: q.date }))}
+                  className={`flex-1 py-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                    form.renewal_date === q.date ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
             <input
               type="date"
               value={form.renewal_date}

@@ -99,6 +99,7 @@ export default function CustomersPage({ onViewCustomer, initialAction }: Custome
         status: form.status,
         assigned_rm_id: form.assigned_rm_id || null,
         notes: form.notes || null,
+        active: true,
         created_by: user?.id,
         owner_id: user?.id,
       }).select().single();
@@ -450,6 +451,7 @@ export default function CustomersPage({ onViewCustomer, initialAction }: Custome
               {label}
             </button>
           ))}
+
         </div>
       </Modal>
     </div>

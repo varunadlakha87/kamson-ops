@@ -189,7 +189,7 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
 
     const { data: savedCase, error } = editingCase
       ? await supabase.from(T.INSURANCE_CASES).update(basePayload).eq('id', editingCase.id).select().single()
-      : await supabase.from(T.INSURANCE_CASES).insert({ ...basePayload, created_by: user?.id, owner_id: user?.id }).select().single();
+      : await supabase.from(T.INSURANCE_CASES).insert({ ...basePayload, active: true, created_by: user?.id, owner_id: user?.id }).select().single();
 
     if (error) {
       setSaveError(error.message);
@@ -211,6 +211,7 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
         renewal_date: form.renewal_date,
         amount: parseFloat(form.premium_amount) || 0,
         status: 'pending',
+        active: true,
       });
     }
 
@@ -242,6 +243,7 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
           renewal_date: selectedCase.renewal_date,
           amount: selectedCase.premium_amount ?? 0,
           status: 'pending',
+          active: true,
         });
       }
     }
@@ -970,6 +972,7 @@ export default function InsurancePage({ initialAction }: InsurancePageProps) {
             className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-600 text-sm font-medium"
           >
             Clear All Filters
+        
           </button>
         </div>
       </Modal>

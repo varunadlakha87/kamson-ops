@@ -21,11 +21,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [timedOut, setTimedOut] = useState(false);
 
   async function fetchProfile(userId: string) {
-    try {
-      const { data } = await supabase.from(T.USERS).select('*').eq('id', userId).single();
-      if (data) setProfile(data as Profile);
-    } catch {
-      // profile fetch failed — leave profile null, app will show login
+    const { data, error } = await supabase.from(T.USERS).select('*').eq('id', userId).single();
+    if (error) {
+      console.error('[fetchProfile] error:', error.code, error.message, error.details);
+    }
+    if (data) {
+      setProfile(data as Profile);
+    } else {
+      console.warn('[fetchProfile] no data returned for userId:', userId);
     }
   }
 
@@ -57,15 +60,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
     // Keep in sync with auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // NOTE: do NOT await fetchProfile here — Supabase v2 awaits onAuthStateChange callbacks,
+    // which would cause signInWithPassword to hang until the DB query resolves.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        await fetchProfile(session.user.id);
+        clearTimeout(safetyTimer);
+        fetchProfile(session.user.id).finally(() => setLoading(false));
       } else {
         setProfile(null);
+        clearTimeout(safetyTimer);
+        setLoading(false);
       }
-      clearTimeout(safetyTimer);
-      setLoading(false);
     });
 
     return () => {

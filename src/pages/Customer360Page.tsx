@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { supabase, T, Customer, Loan, InsurancePolicy, Document, Task, Activity, Profile } from '../lib/supabase';
+import { supabase, T, Customer, Loan, InsurancePolicy, Document, Task, Activity, Profile, Renewal } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import Modal from '../components/Modal';
 import { MaskedField } from '../components/MaskedField';
 import {
   ArrowLeft, Phone, MessageCircle, Upload, StickyNote,
   CreditCard, Shield, FileText, CheckSquare, Clock,
-  Plus, Loader2, Calendar, TrendingUp, Building, MapPin, Mail, Briefcase
+  Plus, Loader2, Calendar, TrendingUp, Building, MapPin, Mail, Briefcase,
+  RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 interface InsuranceCaseItem {
@@ -81,6 +82,8 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [insuranceCases, setInsuranceCases] = useState<InsuranceCaseItem[]>([]);
+  const [renewals, setRenewals] = useState<Renewal[]>([]);
+  const [portfolio, setPortfolio] = useState({ loans: 0, policies: 0, cases: 0, docs: 0, tasks: 0 });
   const [loading, setLoading] = useState(false);
 
   const [showLoanModal, setShowLoanModal] = useState(false);
@@ -102,7 +105,23 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
 
   useEffect(() => {
     supabase.from(T.USERS).select('id, full_name').then(({ data }) => setProfiles(data ?? []));
-  }, []);
+    // Load portfolio counts + upcoming renewals on mount
+    loadOverviewData();
+  }, [customer.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadOverviewData() {
+    const cid = customer.id;
+    const [{ count: lc }, { count: ic }, { count: cc }, { count: dc }, { count: tc }, { data: rv }] = await Promise.all([
+      supabase.from(T.LOANS).select('id', { count: 'exact', head: true }).eq('customer_id', cid).eq('active', true),
+      supabase.from(T.INSURANCE_CASES).select('id', { count: 'exact', head: true }).eq('customer_id', cid).eq('active', true),
+      supabase.from(T.INSURANCE_POLICIES).select('id', { count: 'exact', head: true }).eq('customer_id', cid).eq('active', true),
+      supabase.from(T.DOCUMENTS).select('id', { count: 'exact', head: true }).eq('customer_id', cid).eq('active', true),
+      supabase.from(T.TASKS).select('id', { count: 'exact', head: true }).eq('customer_id', cid).eq('active', true).neq('status', 'completed'),
+      supabase.from(T.RENEWALS).select('*').eq('customer_id', cid).eq('active', true).neq('status', 'completed').order('renewal_date', { ascending: true }),
+    ]);
+    setPortfolio({ loans: lc ?? 0, cases: ic ?? 0, policies: cc ?? 0, docs: dc ?? 0, tasks: tc ?? 0 });
+    setRenewals((rv ?? []) as Renewal[]);
+  }
 
   async function loadTabData(tab: ActiveTab) {
     setLoading(true);
@@ -144,6 +163,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
   async function saveLoan() {
     setSaving(true);
     try {
+      setSaveError('');
       const { error } = await supabase.from(T.LOANS).insert({
         customer_id: customer.id,
         loan_type: loanForm.loan_type,
@@ -155,14 +175,16 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
         login_date: loanForm.login_date || null,
         status: loanForm.status,
         notes: loanForm.notes,
+        active: true,
         created_by: user?.id,
         owner_id: user?.id,
       });
       if (!error) {
-        await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'loan_created', description: `Loan case created: ${loanForm.loan_type} - ${loanForm.bank_nbfc}`, performed_by: user?.id });
+        await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'loan_created', description: `Loan case created: ${loanForm.loan_type} - ${loanForm.bank_nbfc}`, performed_by: user?.id, active: true });
         setShowLoanModal(false);
         setLoanForm({ loan_type: '', bank_nbfc: '', loan_amount: '', emi_amount: '', roi: '', tenure_months: '', login_date: '', status: 'lead', notes: '' });
         loadTabData('loans');
+        loadOverviewData();
       }
     } finally {
       setSaving(false);
@@ -171,6 +193,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
 
   async function savePolicy() {
     setSaving(true);
+    setSaveError('');
     const { data: pol, error } = await supabase.from(T.INSURANCE_POLICIES).insert({
       customer_id: customer.id,
       policy_type: policyForm.policy_type,
@@ -183,10 +206,16 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
       nominee_name: policyForm.nominee_name,
       status: policyForm.status,
       notes: policyForm.notes,
+      active: true,
       created_by: user?.id,
       owner_id: user?.id,
     }).select().single();
-    if (!error) {
+    if (error) {
+      setSaveError(error.message);
+      setSaving(false);
+      return;
+    }
+    if (pol) {
       if (policyForm.renewal_date) {
         await supabase.from(T.RENEWALS).insert({
           customer_id: customer.id,
@@ -196,12 +225,16 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
           renewal_date: policyForm.renewal_date,
           amount: parseFloat(policyForm.premium_amount) || 0,
           status: 'pending',
+          active: true,
+          owner_id: user?.id,
+          created_by: user?.id,
         });
       }
-      await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'policy_created', description: `Policy added: ${policyForm.policy_type} - ${policyForm.insurance_company}`, performed_by: user?.id });
+      await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'policy_created', description: `Policy added: ${policyForm.policy_type} - ${policyForm.insurance_company}`, performed_by: user?.id, active: true });
       setShowPolicyModal(false);
       setPolicyForm({ policy_type: '', insurance_company: '', policy_number: '', premium_amount: '', sum_assured: '', policy_start_date: '', renewal_date: '', nominee_name: '', status: 'active', notes: '' });
       loadTabData('insurance');
+      loadOverviewData();
     }
     setSaving(false);
   }
@@ -223,10 +256,11 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
     if (error) {
       setSaveError(error.message);
     } else {
-      await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'task_created', description: `Task created: ${taskForm.title || TASK_TYPE_LABELS[taskForm.task_type]}`, performed_by: user?.id });
+      await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'task_created', description: `Task created: ${taskForm.title || TASK_TYPE_LABELS[taskForm.task_type]}`, performed_by: user?.id, active: true });
       setShowTaskModal(false);
       setTaskForm({ task_type: 'customer_call', title: '', description: '', due_date: '' });
       loadTabData('tasks');
+      loadOverviewData();
     }
     setSaving(false);
   }
@@ -234,7 +268,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
   async function saveNote() {
     if (!noteText.trim()) return;
     setSaving(true);
-    const { error } = await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'note_added', description: noteText.trim(), performed_by: user?.id });
+    const { error } = await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'note_added', description: noteText.trim(), performed_by: user?.id, active: true });
     if (error) {
       console.error('Save note failed:', error.message);
     } else {
@@ -249,6 +283,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
     const { error } = await supabase.from(T.TASKS).update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', taskId);
     if (error) { console.error('Complete task failed:', error.message); return; }
     loadTabData('tasks');
+    loadOverviewData();
   }
 
   const tabs: { id: ActiveTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -348,6 +383,68 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
         {/* Overview Tab */}
         {activeTab === 'overview' && !loading && (
           <div className="space-y-4">
+
+            {/* Portfolio Summary */}
+            <div className="grid grid-cols-5 gap-1.5">
+              {[
+                { label: 'Loans', value: portfolio.loans, icon: CreditCard, color: 'text-blue-600', bg: 'bg-blue-50', tab: 'loans' as ActiveTab },
+                { label: 'Cases', value: portfolio.cases, icon: Shield, color: 'text-emerald-600', bg: 'bg-emerald-50', tab: 'insurance' as ActiveTab },
+                { label: 'Policies', value: portfolio.policies, icon: TrendingUp, color: 'text-violet-600', bg: 'bg-violet-50', tab: 'insurance' as ActiveTab },
+                { label: 'Docs', value: portfolio.docs, icon: FileText, color: 'text-amber-600', bg: 'bg-amber-50', tab: 'documents' as ActiveTab },
+                { label: 'Tasks', value: portfolio.tasks, icon: CheckSquare, color: 'text-rose-600', bg: 'bg-rose-50', tab: 'tasks' as ActiveTab },
+              ].map(({ label, value, icon: Icon, color, bg, tab }) => (
+                <button key={label} onClick={() => setActiveTab(tab)}
+                  className="bg-white rounded-xl shadow-sm border border-slate-100 p-2 flex flex-col items-center gap-1 active:bg-slate-50">
+                  <div className={`p-1.5 rounded-lg ${bg}`}><Icon className={`w-3.5 h-3.5 ${color}`} /></div>
+                  <span className={`text-base font-bold ${color}`}>{value}</span>
+                  <span className="text-[9px] text-slate-400 font-medium">{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Upcoming Renewals for this customer */}
+            {renewals.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100">
+                  <RefreshCw className="w-4 h-4 text-blue-600" />
+                  <h3 className="font-semibold text-slate-800 text-sm">Upcoming Renewals</h3>
+                  <span className="ml-auto text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{renewals.length}</span>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {renewals.map(r => {
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    const rd = new Date(r.renewal_date); rd.setHours(0,0,0,0);
+                    const diff = Math.ceil((rd.getTime() - today.getTime()) / 86400000);
+                    const overdue = diff < 0;
+                    const urgent = diff >= 0 && diff <= 7;
+                    return (
+                      <div key={r.id} className="px-4 py-3 flex items-center gap-3">
+                        <div className={`p-2 rounded-xl flex-shrink-0 ${overdue ? 'bg-red-50' : urgent ? 'bg-amber-50' : 'bg-slate-50'}`}>
+                          {overdue || urgent
+                            ? <AlertTriangle className={`w-4 h-4 ${overdue ? 'text-red-500' : 'text-amber-500'}`} />
+                            : <RefreshCw className="w-4 h-4 text-slate-400" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{r.title}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {new Date(r.renewal_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {r.amount > 0 && ` · ₹${r.amount.toLocaleString('en-IN')}`}
+                          </p>
+                        </div>
+                        <span className={`text-xs font-bold px-2 py-1 rounded-full flex-shrink-0 ${
+                          overdue ? 'bg-red-100 text-red-700' :
+                          urgent ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-600'
+                        }`}>
+                          {overdue ? `${Math.abs(diff)}d overdue` : diff === 0 ? 'Today' : `${diff}d`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3">
               <h3 className="font-semibold text-slate-800 text-sm">Personal Details</h3>
               {customer.email && (
@@ -723,12 +820,15 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
         onClose={() => setShowPolicyModal(false)}
         title="Add Insurance Policy"
         footer={
-          <button onClick={savePolicy} disabled={saving || !policyForm.policy_type || !policyForm.insurance_company}
-            className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
-            style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {saving ? 'Saving...' : 'Save Policy'}
-          </button>
+          <div className="space-y-2">
+            {saveError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{saveError}</p>}
+            <button onClick={savePolicy} disabled={saving || !policyForm.policy_type || !policyForm.insurance_company}
+              className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {saving ? 'Saving...' : 'Save Policy'}
+            </button>
+          </div>
         }
       >
         <div className="space-y-3">
@@ -764,7 +864,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Start Date</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Policy Start Date</label>
               <input type="date" value={policyForm.policy_start_date} onChange={e => setPolicyForm(f => ({ ...f, policy_start_date: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
             </div>
@@ -777,28 +877,37 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nominee Name</label>
             <input type="text" value={policyForm.nominee_name} onChange={e => setPolicyForm(f => ({ ...f, nominee_name: e.target.value }))}
-              placeholder="Nominee full name" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+              placeholder="Nominee name" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
+            <select value={policyForm.status} onChange={e => setPolicyForm(f => ({ ...f, status: e.target.value }))}
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+              {Object.entries(INSURANCE_STATUS_LABELS).map(([v, { label }]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notes</label>
+            <textarea value={policyForm.notes} onChange={e => setPolicyForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="Notes about this policy" rows={2}
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm resize-none" />
           </div>
         </div>
       </Modal>
 
-      {/* Add Task Modal */}
-      <Modal
-        open={showTaskModal}
-        onClose={() => setShowTaskModal(false)}
-        title="Add Task"
+      {/* Task Modal */}
+      <Modal open={showTaskModal} onClose={() => { setShowTaskModal(false); setSaveError(''); }} title="Add Task"
         footer={
           <div className="space-y-2">
             {saveError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{saveError}</p>}
             <button onClick={saveTask} disabled={saving}
-              className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+              className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2"
               style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               {saving ? 'Saving...' : 'Save Task'}
             </button>
           </div>
-        }
-      >
+        }>
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Task Type</label>
@@ -808,41 +917,36 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Title</label>
-            <input type="text" value={taskForm.title} onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="Task title (optional)" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
-          </div>
-          <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Due Date</label>
-            <input type="datetime-local" value={taskForm.due_date} onChange={e => setTaskForm(f => ({ ...f, due_date: e.target.value }))}
+            <input type="date" value={taskForm.due_date} onChange={e => setTaskForm(f => ({ ...f, due_date: e.target.value }))}
               className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notes</label>
             <textarea value={taskForm.description} onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))}
-              placeholder="Task details" rows={2}
+              placeholder="Task notes" rows={2}
               className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm resize-none" />
           </div>
         </div>
       </Modal>
 
       {/* Note Modal */}
-      <Modal
-        open={showNoteModal}
-        onClose={() => setShowNoteModal(false)}
-        title="Add Note"
+      <Modal open={showNoteModal} onClose={() => { setShowNoteModal(false); setSaveError(''); }} title="Add Note"
         footer={
-          <button onClick={saveNote} disabled={saving || !noteText.trim()}
-            className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
-            style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {saving ? 'Saving...' : 'Save Note'}
-          </button>
-        }
-      >
-        <div className="space-y-3">
+          <div className="space-y-2">
+            {saveError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{saveError}</p>}
+            <button onClick={saveNote} disabled={saving || !noteText.trim()}
+              className="w-full py-3 rounded-xl text-white font-semibold disabled:opacity-60 flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' }}>
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {saving ? 'Saving...' : 'Save Note'}
+            </button>
+          </div>
+        }>
+        <div>
           <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
-            placeholder="Write your note..." rows={4}
+            placeholder="Write a note about this customer..."
+            rows={4}
             className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm resize-none" />
         </div>
       </Modal>
