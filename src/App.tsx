@@ -9,6 +9,7 @@ import RenewalsPage from './pages/RenewalsPage';
 import DocumentsPage from './pages/DocumentsPage';
 import ProfilePage from './pages/ProfilePage';
 import InsurancePage from './pages/InsurancePage';
+import InsuranceCaseDetailPage from './pages/InsuranceCaseDetailPage';
 import LoansPage from './pages/LoansPage';
 import AdminControlPanel from './admin/AdminControlPanel';
 import BottomNav from './components/BottomNav';
@@ -22,6 +23,7 @@ function AppContent() {
   const { user, profile } = useAuth();
   const [navState, setNavState] = useState<NavState>({ tab: 'home' });
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedInsuranceCaseId, setSelectedInsuranceCaseId] = useState<string | null>(null);
 
   // Not authenticated — show login screen
   if (!user || !profile) return <LoginPage />;
@@ -34,6 +36,18 @@ function AppContent() {
   function handleTabChange(tab: Tab) {
     setNavState({ tab, data: undefined });
     setSelectedCustomer(null);
+  }
+
+  // Insurance case detail — full screen, no bottom nav
+  if (selectedInsuranceCaseId) {
+    return (
+      <div className="max-w-lg mx-auto relative min-h-screen">
+        <InsuranceCaseDetailPage
+          caseId={selectedInsuranceCaseId}
+          onBack={() => setSelectedInsuranceCaseId(null)}
+        />
+      </div>
+    );
   }
 
   // Admin — full screen, no bottom nav wrapper
@@ -59,7 +73,7 @@ function AppContent() {
       {navState.tab === 'tasks'     && <TasksPage initialAction={navData?.action} />}
       {navState.tab === 'renewals'  && <RenewalsPage />}
       {navState.tab === 'documents' && <DocumentsPage initialAction={navData?.action} />}
-      {navState.tab === 'insurance' && <InsurancePage initialAction={navData?.action} />}
+      {navState.tab === 'insurance' && <InsurancePage initialAction={navData?.action} onViewCase={setSelectedInsuranceCaseId} />}
       {navState.tab === 'loans'     && <LoansPage initialAction={navData?.action} />}
       {navState.tab === 'profile'   && <ProfilePage />}
       <BottomNav activeTab={navState.tab} onTabChange={handleTabChange} />

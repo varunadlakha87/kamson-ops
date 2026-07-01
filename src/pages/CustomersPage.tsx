@@ -58,6 +58,7 @@ export default function CustomersPage({ onViewCustomer, initialAction }: Custome
         results = results.filter(c =>
           c.full_name.toLowerCase().includes(s) ||
           c.mobile.includes(s) ||
+          (c.customer_code && c.customer_code.toLowerCase().includes(s)) ||
           (c.pan || '').toLowerCase().includes(s)
         );
       }
@@ -236,7 +237,7 @@ export default function CustomersPage({ onViewCustomer, initialAction }: Custome
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <p className="text-slate-500 text-xs">{customer.mobile}</p>
-                        {customer.ref_id && <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{customer.ref_id}</span>}
+                        {customer.customer_code && <span className="text-[10px] font-mono font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{customer.customer_code}</span>}
                       </div>
                       {customer.assigned_rm && (
                         <p className="text-slate-400 text-xs mt-0.5">RM: {(customer.assigned_rm as Profile).full_name}</p>

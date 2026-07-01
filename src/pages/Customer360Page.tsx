@@ -94,7 +94,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
   const [saveError, setSaveError] = useState('');
 
   const [loanForm, setLoanForm] = useState({ loan_type: '', bank_nbfc: '', loan_amount: '', emi_amount: '', roi: '', tenure_months: '', login_date: '', status: 'lead', notes: '' });
-  const [policyForm, setPolicyForm] = useState({ policy_type: '', insurance_company: '', policy_number: '', premium_amount: '', sum_assured: '', policy_start_date: '', renewal_date: '', nominee_name: '', status: 'active', notes: '' });
+  const [policyForm, setPolicyForm] = useState({ policy_type: '', insurance_company: '', policy_number: '', premium_amount: '', sum_assured: '', policy_start_date: '', renewal_date: '', nominee_name: '', status: 'active', notes: '', insurance_category: '', vehicle_number: '', vehicle_model: '', proposal_number: '', channel: '', is_renewal: false, od_amount: '', tp_amount: '', payout_percentage: '', payout_amount: '', cashback_amount: '', profitable_amount: '', payout_status: 'pending', payment_mode: '', payment_reference: '' });
   const [taskForm, setTaskForm] = useState({ task_type: 'customer_call', title: '', description: '', due_date: '' });
   const [noteText, setNoteText] = useState('');
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -209,6 +209,21 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
       active: true,
       created_by: user?.id,
       owner_id: user?.id,
+      insurance_category: policyForm.insurance_category,
+      vehicle_number: policyForm.vehicle_number,
+      vehicle_model: policyForm.vehicle_model,
+      proposal_number: policyForm.proposal_number,
+      channel: policyForm.channel,
+      is_renewal: policyForm.is_renewal,
+      od_amount: parseFloat(policyForm.od_amount) || 0,
+      tp_amount: parseFloat(policyForm.tp_amount) || 0,
+      payout_percentage: parseFloat(policyForm.payout_percentage) || 0,
+      payout_amount: parseFloat(policyForm.payout_amount) || 0,
+      cashback_amount: parseFloat(policyForm.cashback_amount) || 0,
+      profitable_amount: parseFloat(policyForm.profitable_amount) || 0,
+      payout_status: policyForm.payout_status,
+      payment_mode: policyForm.payment_mode,
+      payment_reference: policyForm.payment_reference,
     }).select().single();
     if (error) {
       setSaveError(error.message);
@@ -232,7 +247,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
       }
       await supabase.from(T.ACTIVITIES).insert({ customer_id: customer.id, activity_type: 'policy_created', description: `Policy added: ${policyForm.policy_type} - ${policyForm.insurance_company}`, performed_by: user?.id, active: true });
       setShowPolicyModal(false);
-      setPolicyForm({ policy_type: '', insurance_company: '', policy_number: '', premium_amount: '', sum_assured: '', policy_start_date: '', renewal_date: '', nominee_name: '', status: 'active', notes: '' });
+      setPolicyForm({ policy_type: '', insurance_company: '', policy_number: '', premium_amount: '', sum_assured: '', policy_start_date: '', renewal_date: '', nominee_name: '', status: 'active', notes: '', insurance_category: '', vehicle_number: '', vehicle_model: '', proposal_number: '', channel: '', is_renewal: false, od_amount: '', tp_amount: '', payout_percentage: '', payout_amount: '', cashback_amount: '', profitable_amount: '', payout_status: 'pending', payment_mode: '', payment_reference: '' });
       loadTabData('insurance');
       loadOverviewData();
     }
@@ -320,7 +335,7 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold text-white truncate">{customer.full_name}</h1>
-                {customer.ref_id && <span className="text-[10px] font-mono font-bold bg-white/20 text-white px-2 py-0.5 rounded-full flex-shrink-0">{customer.ref_id}</span>}
+                {customer.customer_code && <span className="text-[10px] font-mono font-bold bg-white/20 text-white px-2 py-0.5 rounded-full flex-shrink-0">{customer.customer_code}</span>}
               </div>
               <p className="text-slate-300 text-sm">{customer.mobile}</p>
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full mt-1 inline-block ${
@@ -832,27 +847,95 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
         }
       >
         <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Policy Type *</label>
-            <select value={policyForm.policy_type} onChange={e => setPolicyForm(f => ({ ...f, policy_type: e.target.value }))}
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
-              <option value="">Select type</option>
-              {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+          {/* Section: Basic Info */}
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Policy Details</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Policy Type *</label>
+              <select value={policyForm.policy_type} onChange={e => setPolicyForm(f => ({ ...f, policy_type: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+                <option value="">Select type</option>
+                {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Category</label>
+              <select value={policyForm.insurance_category} onChange={e => setPolicyForm(f => ({ ...f, insurance_category: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+                <option value="">Select</option>
+                {['FW', 'TW', 'Health', 'SME', 'Other'].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Insurance Company *</label>
             <input type="text" value={policyForm.insurance_company} onChange={e => setPolicyForm(f => ({ ...f, insurance_company: e.target.value }))}
-              placeholder="e.g., LIC, HDFC Life, Star Health" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Policy Number</label>
-            <input type="text" value={policyForm.policy_number} onChange={e => setPolicyForm(f => ({ ...f, policy_number: e.target.value }))}
-              placeholder="Policy number" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+              placeholder="e.g., TATA, HDFC, Star Health" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Premium Amount</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Policy Number</label>
+              <input type="text" value={policyForm.policy_number} onChange={e => setPolicyForm(f => ({ ...f, policy_number: e.target.value }))}
+                placeholder="Policy number" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Proposal No.</label>
+              <input type="text" value={policyForm.proposal_number} onChange={e => setPolicyForm(f => ({ ...f, proposal_number: e.target.value }))}
+                placeholder="e.g., S-11646" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Channel</label>
+              <input type="text" value={policyForm.channel} onChange={e => setPolicyForm(f => ({ ...f, channel: e.target.value }))}
+                placeholder="e.g., T-Direct, Bajaj-PB" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Fresh / Renewal</label>
+              <select value={policyForm.is_renewal ? 'renewal' : 'fresh'} onChange={e => setPolicyForm(f => ({ ...f, is_renewal: e.target.value === 'renewal' }))}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+                <option value="fresh">Fresh</option>
+                <option value="renewal">Renewal</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Section: Vehicle (shown for FW/TW) */}
+          {(policyForm.insurance_category === 'FW' || policyForm.insurance_category === 'TW' || policyForm.policy_type === 'Motor') && (
+            <>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Vehicle Info</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Vehicle Number</label>
+                  <input type="text" value={policyForm.vehicle_number} onChange={e => setPolicyForm(f => ({ ...f, vehicle_number: e.target.value }))}
+                    placeholder="e.g., DL 03 CCS 6411" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Vehicle Model</label>
+                  <input type="text" value={policyForm.vehicle_model} onChange={e => setPolicyForm(f => ({ ...f, vehicle_model: e.target.value }))}
+                    placeholder="e.g., Maruti Ertiga" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Section: Premium */}
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Premium</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">OD Amount</label>
+              <input type="number" value={policyForm.od_amount} onChange={e => setPolicyForm(f => ({ ...f, od_amount: e.target.value }))}
+                placeholder="0" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">TP Amount</label>
+              <input type="number" value={policyForm.tp_amount} onChange={e => setPolicyForm(f => ({ ...f, tp_amount: e.target.value }))}
+                placeholder="0" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Total Premium</label>
               <input type="number" value={policyForm.premium_amount} onChange={e => setPolicyForm(f => ({ ...f, premium_amount: e.target.value }))}
                 placeholder="0" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
             </div>
@@ -874,6 +957,62 @@ export default function Customer360Page({ customer, onBack }: Customer360PagePro
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
             </div>
           </div>
+
+          {/* Section: Payout */}
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Payout / Commission</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payout %</label>
+              <input type="number" step="0.01" value={policyForm.payout_percentage} onChange={e => setPolicyForm(f => ({ ...f, payout_percentage: e.target.value }))}
+                placeholder="0.00" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payout Amount</label>
+              <input type="number" value={policyForm.payout_amount} onChange={e => setPolicyForm(f => ({ ...f, payout_amount: e.target.value }))}
+                placeholder="0" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Cashback to Customer</label>
+              <input type="number" value={policyForm.cashback_amount} onChange={e => setPolicyForm(f => ({ ...f, cashback_amount: e.target.value }))}
+                placeholder="0" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Net Profit</label>
+              <input type="number" value={policyForm.profitable_amount} onChange={e => setPolicyForm(f => ({ ...f, profitable_amount: e.target.value }))}
+                placeholder="0" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payout Status</label>
+              <select value={policyForm.payout_status} onChange={e => setPolicyForm(f => ({ ...f, payout_status: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="na">N/A</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payment Mode</label>
+              <select value={policyForm.payment_mode} onChange={e => setPolicyForm(f => ({ ...f, payment_mode: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+                <option value="">Select</option>
+                <option value="Online">Online</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Cash">Cash</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Cheque / TXN Reference</label>
+            <input type="text" value={policyForm.payment_reference} onChange={e => setPolicyForm(f => ({ ...f, payment_reference: e.target.value }))}
+              placeholder="Cheque number or transaction ID" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+          </div>
+
+          {/* Section: Other */}
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Other</p>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nominee Name</label>
             <input type="text" value={policyForm.nominee_name} onChange={e => setPolicyForm(f => ({ ...f, nominee_name: e.target.value }))}
